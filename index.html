@@ -694,10 +694,9 @@ function updatePreview() {
   } else { el.style.display = "none"; }
 }
 
-async function saveEntry() {
-  const btn = document.querySelector("[onclick='saveEntry()']");
-  if (btn) btn.disabled = true;
-  try {
+const btn = document.getElementById("log-save-btn");
+if (btn) btn.disabled = true;
+try {
   const dist = parseFloat(document.getElementById("log-distance").value);
   const h = document.getElementById("log-hours").value;
   const m = document.getElementById("log-minutes").value;
