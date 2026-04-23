@@ -412,20 +412,12 @@ function showLoading() { document.getElementById("loadingOverlay").style.display
 function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
 
 async function api(params) {
-  const usePost = params.action === "saveReflection";
+  // Always use GET with URLSearchParams — Apps Script e.parameter only reads query strings
+  const url = new URL(API_URL);
+  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : String(v)));
   try {
     showLoading();
-    let fetchRes;
-    if (usePost) {
-      const body = new URLSearchParams();
-      Object.entries(params).forEach(([k,v]) => body.append(k, typeof v === "object" ? JSON.stringify(v) : String(v)));
-      fetchRes = await fetch(API_URL, { method: "POST", body, redirect: "follow", mode: "cors" });
-    } else {
-      const url = new URL(API_URL);
-      Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : v));
-      fetchRes = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
-    }
-    const res = fetchRes;
+    const res = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
     const text = await res.text();
     try {
       return JSON.parse(text);
