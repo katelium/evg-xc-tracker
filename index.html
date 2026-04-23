@@ -414,10 +414,7 @@ function hideLoading() { document.getElementById("loadingOverlay").style.display
 async function api(params) {
   const url = new URL(API_URL);
   Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : String(v)));
-  if (params.action === "saveReflection") {
-    console.log("REFLECTION URL:", url.toString());
-    alert("URL being sent:\n" + url.toString().substring(0, 300));
-  }
+
   try {
     showLoading();
     const res = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
