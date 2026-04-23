@@ -284,6 +284,16 @@ input[type=number] { -moz-appearance: textfield; }
     <div class="content">
       <div id="fb-summary" class="card"></div>
       <div id="fb-cards"></div>
+      
+      <!-- Reflection Section -->
+      <div id="fb-reflection" class="card" style="margin-top:16px; display:none">
+        <div id="fb-phase-badge" style="margin-bottom:12px"></div>
+        <div id="fb-prompt1-area" style="margin-bottom:16px"></div>
+        <div id="fb-prompt2-area" style="margin-bottom:16px"></div>
+        <button class="btn btn-primary" id="fb-save-reflection" onclick="saveReflection()" style="background:linear-gradient(135deg, var(--gold), var(--warn)); margin-bottom:8px">💭 Save Reflection</button>
+        <div id="fb-reflection-saved" style="display:none; text-align:center; color:var(--accent); font-size:13px; font-weight:600; padding:8px">✓ Reflection saved!</div>
+      </div>
+      
       <button class="btn btn-primary" onclick="goScreen('dashboard')" style="margin-top:12px">← Back to Dashboard</button>
     </div>
   </div>
@@ -327,8 +337,12 @@ input[type=number] { -moz-appearance: textfield; }
     <div class="content">
       <div class="card">
         <label class="field-label" style="margin-bottom:12px">Add New Shoe</label>
-        <div class="field"><label class="field-label">Shoe Name</label><input type="text" id="shoe-name" class="field-input" placeholder="e.g. Nike Pegasus 41"></div>
+        <div class="field"><label class="field-label">Shoe Name *</label><input type="text" id="shoe-name" class="field-input" placeholder="e.g. Nike Pegasus 41"></div>
         <div class="field"><label class="field-label">Brand (optional)</label><input type="text" id="shoe-brand" class="field-input" placeholder="e.g. Nike"></div>
+        <div class="field"><label class="field-label">First Use Date</label><input type="date" id="shoe-first-use" class="field-input"></div>
+        <div class="field"><label class="field-label">Max Km Threshold</label><input type="number" id="shoe-max-km" class="field-input" placeholder="e.g. 650" value="800"></div>
+        <div style="margin-bottom:16px"><label class="field-label">Default Run Type (optional)</label><div id="shoe-runtype-chips" class="chip-row"></div></div>
+        <div class="field"><label class="field-label">Notes (optional)</label><textarea id="shoe-notes" class="field-input" placeholder="e.g. Race day shoe, lightweight" rows="2"></textarea></div>
         <button class="btn btn-primary" onclick="addShoe()">+ Add Shoe</button>
       </div>
       <div id="shoes-list"></div>
@@ -373,7 +387,7 @@ input[type=number] { -moz-appearance: textfield; }
 const API_URL = "https://script.google.com/macros/s/AKfycbwMQPmEhUBY-WPXnSQQDj06GkzEET9Xk4lWw86jL039itGHKrVBfdIltaHIX3YAjAFg/exec";
 
 // ─── State ───
-let state = { students: [], entries: [], shoes: [], currentStudent: null, viewStudent: null, selectedRunType: "Easy Run", selectedRpe: 0, selectedShoe: "", historyFilter: "All" };
+let state = { students: [], entries: [], shoes: [], currentStudent: null, viewStudent: null, selectedRunType: "Easy Run", selectedRpe: 0, selectedShoe: "", historyFilter: "All", shoeRunType: "", lastEntryId: null };
 
 // ─── Constants ───
 const RUN_TYPES = ["Easy Run","Long Run","Tempo Run","Interval","Fartlek","Hill Repeats","Recovery Run","Time Trial","Cross Training","Race"];
@@ -459,7 +473,24 @@ async function goHome() {
 function renderStudentList() {
   const el = document.getElementById("home-students-list");
   if (!state.students.length) { el.innerHTML = ""; return; }
-  el.innerHTML = `<div style="margin-bottom:24px"><label class="field-label">Returning? Tap your name</label><div class="chip-row">${state.students.map(s=>`<button class="chip" onclick="handleTapStudent('${s.name.replace(/'/g,"\\'")}')">🔒 ${s.name}</button>`).join("")}</div></div>`;
+  // Show hint but no names until user types
+  el.innerHTML = `<div style="margin-bottom:24px"><div style="font-size:12px; color:var(--dim); text-align:center">Returning? Just type your name above and tap Continue</div><div id="filtered-students" class="chip-row" style="margin-top:10px"></div></div>`;
+  
+  // Add search-as-you-type to the name field
+  const nameInput = document.getElementById("home-name");
+  nameInput.addEventListener("input", filterStudentNames);
+}
+
+function filterStudentNames() {
+  const query = document.getElementById("home-name").value.trim().toLowerCase();
+  const el = document.getElementById("filtered-students");
+  if (!el) return;
+  if (!query || query.length < 1) { el.innerHTML = ""; return; }
+  
+  const matches = state.students.filter(s => s.name.toLowerCase().includes(query)).slice(0, 8);
+  if (matches.length === 0) { el.innerHTML = ""; return; }
+  
+  el.innerHTML = matches.map(s => `<button class="chip" onclick="handleTapStudent('${s.name.replace(/'/g,"\\'")}')" style="animation:slideIn .2s ease both">🔒 ${s.name}</button>`).join("");
 }
 
 function homeReset() {
@@ -626,7 +657,14 @@ function renderLogForm() {
   });
 }
 
-function selectRunType(t) { state.selectedRunType = t; document.getElementById("log-runtype-chips").innerHTML = RUN_TYPES.map(x => `<button class="chip ${state.selectedRunType===x?"active":""}" onclick="selectRunType('${x}')">${x}</button>`).join(""); }
+function selectRunType(t) {
+  state.selectedRunType = t;
+  document.getElementById("log-runtype-chips").innerHTML = RUN_TYPES.map(x => `<button class="chip ${state.selectedRunType===x?"active":""}" onclick="selectRunType('${x}')">${x}</button>`).join("");
+  // Auto-select default shoe for this run type
+  const shoes = state.shoes.filter(s => s.student === state.currentStudent);
+  const defaultShoe = shoes.find(s => s.defaultRunType === t);
+  if (defaultShoe) { state.selectedShoe = defaultShoe.id; renderLogShoes(); }
+}
 
 function selectRpe(n) { state.selectedRpe = state.selectedRpe === n ? 0 : n; renderRpe(); }
 
@@ -683,13 +721,14 @@ async function saveEntry() {
     date: new Date(date + "T12:00:00").toISOString(),
     distance: dist, totalSeconds: totalSec,
     runType: state.selectedRunType,
-    description: document.getElementById("log-description").value.trim() || null,
-    rpe: state.selectedRpe || null,
-    shoe: state.selectedShoe || null
+    description: document.getElementById("log-description").value.trim() || "",
+    rpe: state.selectedRpe || 0,
+    shoe: state.selectedShoe || ""
   };
 
   const res = await api({ action: "addEntry", entry });
-  if (!res.success) { errEl.innerHTML = `<div class="error">${res.error}</div>`; return; }
+  console.log("Save result:", JSON.stringify(res));
+  if (!res.success) { errEl.innerHTML = `<div class="error">${res.error || "Failed to save. Please try again."}</div>`; return; }
 
   entry.id = res.id;
 
@@ -699,7 +738,7 @@ async function saveEntry() {
   const weekKey = getWeekKey(entry.date);
   const weekKm = state.entries.filter(e => e.student === state.currentStudent && getWeekKey(e.date) === weekKey).reduce((a,e) => a + e.distance, 0) + dist;
   let shoeInfo = null;
-  if (entry.shoe) { const sn = getShoeName(entry.shoe); const skm = state.entries.filter(e => e.shoe === entry.shoe).reduce((a,e) => a + e.distance, 0) + dist; shoeInfo = { name: sn, totalKm: skm }; }
+  if (entry.shoe) { const sh = state.shoes.find(x=>x.id===entry.shoe); const sn = sh?sh.name:null; const skm = state.entries.filter(e => e.shoe === entry.shoe).reduce((a,e) => a + e.distance, 0) + dist; shoeInfo = { name: sn, totalKm: skm, maxKm: sh?.maxKm || 800 }; }
 
   const feedback = generateFeedback(entry, previous, weekKm, shoeInfo);
 
@@ -729,8 +768,8 @@ function generateFeedback(cur, prev, weekKm, shoeInfo) {
   else if (cur.rpe >= 7) lines.push({type:"rpe",text:`RPE ${cur.rpe}/10 — solid hard effort. Your body adapts from this.`});
   else if (cur.rpe && cur.rpe <= 3) lines.push({type:"rpe",text:`RPE ${cur.rpe}/10 — nice and easy. Building your aerobic base.`});
   if (weekKm > 0) lines.push({type:"weekly",text:`This week: ${weekKm.toFixed(1)} km. ${weekKm>20?"Strong week!":"Keep building!"}`});
-  if (shoeInfo && shoeInfo.totalKm > 400) lines.push({type:"shoe",text:`👟 "${shoeInfo.name}" has ${shoeInfo.totalKm.toFixed(0)} km — watch the cushioning (500–800 km lifespan).`});
-  else if (shoeInfo) lines.push({type:"shoe",text:`👟 "${shoeInfo.name}" now has ${shoeInfo.totalKm.toFixed(1)} km logged.`});
+  if (shoeInfo && shoeInfo.totalKm > shoeInfo.maxKm * 0.8) lines.push({type:"shoe",text:`👟 "${shoeInfo.name}" has ${shoeInfo.totalKm.toFixed(0)} km of ${shoeInfo.maxKm} km max — consider replacing soon!`});
+  else if (shoeInfo) lines.push({type:"shoe",text:`👟 "${shoeInfo.name}" now has ${shoeInfo.totalKm.toFixed(1)} km of ${shoeInfo.maxKm} km max.`});
   lines.push({type:"tip",text:TIPS[cur.runType]||"Stay consistent and trust the process!"});
   return lines;
 }
@@ -750,6 +789,323 @@ function renderFeedback(entry, prev, lines) {
     const cls = l.type==="fire"?"fire":l.type==="tip"?"tip":l.type==="shoe"?"shoe":"default";
     return `<div class="fb-card ${cls}" style="animation:slideIn .4s ease ${i*.12}s both"><div class="fb-icon">${FB_ICONS[l.type]||"✨"}</div><div class="fb-text">${l.text}</div></div>`;
   }).join("");
+
+  // Show reflection section
+  state.lastEntryId = entry.id;
+  renderReflection();
+}
+
+// ═══════════════════════════════════════
+// REFLECTION SYSTEM (Atomic Habits)
+// ═══════════════════════════════════════
+const REFLECTION_PHASES = [
+  {
+    name: "Building the Habit",
+    icon: "\u{1F331}",
+    minSessions: 0,
+    maxSessions: 10,
+    color: "#00e676",
+    concept: "Identity & Showing Up",
+    prompts: [
+      ["What made you show up for training today?", "What is one thing you did well during this session?"],
+      ["How did you feel before training vs after?", "What is one word to describe today's session?"],
+      ["What motivated you to train today?", "What is something small you're proud of from this session?"],
+      ["Who or what helps you stay committed to training?", "What did you enjoy most about today's session?"],
+      ["If you could tell yourself one thing before training started, what would it be?", "What habit helped you get to training today?"],
+      ["What was the hardest moment today? How did you get through it?", "What does showing up to training say about who you are?"],
+      ["Did anything almost stop you from coming today? What kept you going?", "What is one positive thing your body did for you today?"],
+      ["How does it feel to complete another training session?", "What is one thing you noticed about yourself today?"],
+      ["What time of day do you feel most ready to train? Why?", "What would you rate today's effort out of 10? Why?"],
+      ["What does being part of the XC team mean to you right now?", "Name one teammate who inspired you today. What did they do?"],
+      ["What is one thing you want to remember about today's session?", "How did today's weather or environment affect your training?"],
+      ["What song or thought kept you going during the hard parts?", "What is the simplest reason you run?"],
+      ["What did you do in the last 24 hours to prepare for training?", "How do you feel about your effort today honestly?"],
+      ["What would happen if you missed today? How does it feel that you didn't?", "What does consistency look like for you this week?"],
+      ["What is the smallest win from today's session?", "If training were a subject in school, what grade would you give today?"],
+      ["What surprised you about today's session?", "What part of the warm-up or cool-down do you find most helpful?"],
+      ["How do you talk to yourself during training? Is it helpful?", "What is one thing you look forward to about the next session?"],
+      ["What did your coach say today that stuck with you?", "How are you different from the person who started training?"],
+      ["What is one thing you did today that your future self will thank you for?", "Did you encourage anyone during training today? How did it feel?"],
+      ["Why did you join cross country in the first place?", "What is one thing that running has taught you so far?"],
+      ["What was your energy level today? What affected it?", "How can you make tomorrow a little bit better than today?"],
+      ["What does the word discipline mean to you right now?", "What part of training feels most natural to you?"],
+      ["How do you handle the first few minutes of a run when it feels hard?", "What is something new you tried today?"],
+      ["What do your friends or family think about you doing XC?", "What is one rule you set for yourself during training?"],
+      ["If today's session were a chapter in a book, what would the title be?", "What did you learn about pacing today?"],
+      ["What role does sleep play in your training?", "How did you feel during the last 5 minutes of training?"],
+      ["What would make you feel proud at the end of this term?", "What does just show up mean to you?"],
+      ["How do you balance training with your other commitments?", "What is one way training makes your day better?"],
+      ["What is the biggest change you have noticed since starting XC?", "How do you cool down after training physically and mentally?"],
+      ["What advice would you give to someone thinking about joining XC?", "What is one strength you bring to the team?"],
+      ["Describe today's session in three words.", "What does your ideal warm-up look like?"],
+      ["How do you stay focused during longer runs?", "What is one thing you want to improve by next week?"],
+      ["What did you eat or drink today that helped or didn't help your training?", "How do you reset mentally when a session isn't going well?"],
+      ["What is one thing about training that has become easier over time?", "What would you tell your Day 1 self about running?"],
+      ["How do you feel about your current fitness level?", "What is one small thing you can do tonight to prepare for the next session?"],
+      ["Who do you run for yourself, your team, or something else?", "What is one habit you have built since joining XC?"],
+      ["What keeps you going when your legs feel heavy?", "How did you support the team today?"],
+      ["What is one thing about running that you did not expect?", "How do you celebrate finishing a tough session?"],
+      ["What was the most enjoyable part of today's route or drill?", "If you could change one thing about today's training, what would it be?"],
+      ["How do you prepare your mind before a run?", "What does being reliable in training look like?"],
+      ["What does your body need most right now after training?", "What is one thing you are grateful for about being able to run?"],
+      ["How has your breathing improved since you started?", "What is one thing you want your coach to know about your training?"],
+      ["What was your focus or goal going into today's session?", "Did you achieve it? Why or why not?"],
+      ["What part of training do you find most boring? How could you make it better?", "How do you handle comparing yourself to faster runners?"],
+      ["What does showing up on a tough day prove about your character?", "What is one physical improvement you have noticed this month?"],
+      ["How do you stay positive when training doesn't go as planned?", "What is the best piece of advice you have received about running?"],
+      ["What does your recovery routine look like?", "How do you know when you need rest vs when you need to push?"],
+      ["What is one moment from today that you want to hold onto?", "How does training make you a better student or person?"],
+      ["What would you say to encourage a teammate who is struggling?", "What is one thing you are looking forward to this week in training?"],
+      ["How has your mental toughness changed since you started XC?", "What does trust the process mean to you right now?"],
+    ]
+  },
+  {
+    name: "Making It Stick",
+    icon: "\u26A1",
+    minSessions: 11,
+    maxSessions: 30,
+    color: "#ffd740",
+    concept: "The 4 Laws: Make It Obvious & Attractive",
+    prompts: [
+      ["What cue or routine helped you get to training today?", "What part of training do you enjoy most? How can you do more of it?"],
+      ["What is one small thing you could do to make your next session better?", "How did your preparation before training affect your performance?"],
+      ["What environment or people help you train better?", "What would make you look forward to the next training?"],
+      ["What is your pre-training routine? How could you improve it?", "What part of today's session challenged you in a good way?"],
+      ["How do you remind yourself to prepare for training?", "What is one thing you learned about yourself today?"],
+      ["What makes training feel rewarding for you?", "How can you make the hard parts of training more enjoyable?"],
+      ["What is your cue that tells you it is time to train?", "Describe a moment today where you felt strong or capable."],
+      ["What is one adjustment you made today that helped?", "How do you celebrate after a good session even mentally?"],
+      ["What distractions do you need to remove to train better?", "What would your ideal training day look like?"],
+      ["How has your attitude towards training changed since you started?", "What is one habit outside of training that supports your running?"],
+      ["What triggers help you remember to pack your training gear?", "What makes a training session feel worth it to you?"],
+      ["How do you make training attractive on days you do not feel like it?", "What playlist, podcast, or thought gets you in the zone?"],
+      ["What is one way you have made training more convenient for yourself?", "How do you reward yourself after sticking to your plan?"],
+      ["What visual cue could you set up to remind you about training?", "How does running with teammates make training more enjoyable?"],
+      ["What is the first thing you do when you arrive at training?", "How has your pace or endurance improved recently?"],
+      ["What is one thing you have automated in your training prep?", "What would make you excited to train every day?"],
+      ["How do you link training with something you already do daily?", "What does your post-training reward look like?"],
+      ["What obstacle almost stopped you this week? How did you overcome it?", "What part of the training programme do you find most engaging?"],
+      ["How do you make healthy eating a cue for better training?", "What is one way you could help a teammate enjoy training more?"],
+      ["What would your training look like if it were fun first, hard second?", "How do you track your progress week to week?"],
+      ["What is the most effective warm-up routine you have found?", "How does training in a group vs alone change your effort?"],
+      ["How do you keep training fresh and avoid boredom?", "What new goal are you working towards this month?"],
+      ["What environmental change could improve your training?", "How do you stay motivated between competitive events?"],
+      ["What habit stack have you created around training?", "What is one thing that has become automatic in your routine?"],
+      ["How do you make the first 5 minutes of a run feel easier?", "What pattern have you noticed in your best training sessions?"],
+      ["What is one way you have reduced decision-making around training?", "How do you handle setbacks without losing momentum?"],
+      ["What role does your training kit or gear play in getting you ready?", "What is the most useful feedback you have received this month?"],
+      ["How do you pair training with something enjoyable?", "What does a perfect training week look like for you?"],
+      ["What tiny improvement have you made that had a big impact?", "How do you keep yourself accountable between sessions?"],
+      ["What would training look like if you designed it yourself?", "How has your relationship with discomfort changed?"],
+      ["What is one thing you do consistently before every session?", "How do you reframe a bad day as a learning opportunity?"],
+      ["What role does your phone play in your training helpful or distracting?", "What is one way you could make recovery more enjoyable?"],
+      ["How do you design your week so training fits naturally?", "What is one habit you want to build this term?"],
+      ["What is the difference between motivation and discipline? Which drives you more?", "How do you handle the temptation to skip training?"],
+      ["What is one thing about your routine that you would never change?", "How do you make tough sessions feel less intimidating?"],
+      ["What role does hydration play in your performance?", "What is one thing you want to tell your future self about this phase of training?"],
+      ["How do you keep your goals visible and top of mind?", "What part of training has become a habit you do not think about anymore?"],
+      ["What do you do in the first hour after waking up that sets you up for a good session?", "How do you bounce back from a session that did not go well?"],
+      ["What is one way you have made training a part of your identity?", "How do you stay consistent during exam periods?"],
+      ["What does training smart mean to you?", "How do you know when your body is ready for a hard session?"],
+      ["What would your training calendar look like if you had no constraints?", "What is one thing you do better now than a month ago?"],
+      ["How do you use your commute or free time to mentally prepare?", "What is one experiment you would like to try in training?"],
+      ["What makes you feel most connected to the team during training?", "How do you balance pushing hard with avoiding injury?"],
+      ["How do you react when plans change and training is disrupted?", "What is the best training memory you have so far this term?"],
+      ["What is one thing you wish your non-running friends understood about XC?", "How do you use data like pace, distance, RPE to improve?"],
+      ["What does your evening routine look like before a training day?", "How has your definition of a good session changed?"],
+      ["What is one thing you have learned about nutrition that helps your running?", "How do you prepare mentally for a session you know will be tough?"],
+      ["What is the most important lesson training has taught you this term?", "How do you maintain momentum during school holidays?"],
+      ["What would you include in a training toolkit for new runners?", "How do you deal with muscle soreness and fatigue?"],
+      ["What makes your training environment ideal?", "How do you stay engaged during repetitive drills?"],
+    ]
+  },
+  {
+    name: "Building Systems",
+    icon: "\u{1F527}",
+    minSessions: 31,
+    maxSessions: 60,
+    color: "#ff6e40",
+    concept: "Make It Easy & Satisfying",
+    prompts: [
+      ["What is your 2-minute version of training prep?", "What improvement are you most proud of this month?"],
+      ["How are you making it easier for yourself to train consistently?", "What system or routine has been most helpful for your running?"],
+      ["What is one thing you used to find hard that now feels easier?", "How do you track your own progress outside this app?"],
+      ["If training felt hard today, what made you push through?", "What is one thing you do consistently well in training?"],
+      ["How do you recover after a tough session? Could you do this better?", "What would you tell a friend who wants to start running?"],
+      ["What is the smallest change that has made the biggest difference?", "How do you handle days when you do not feel like training?"],
+      ["What does your weekly training rhythm look like? Is it working?", "What is one area where you have seen clear improvement?"],
+      ["How do you make training a non-negotiable part of your week?", "What feedback from a coach or teammate has stuck with you?"],
+      ["What systems help you balance training with schoolwork?", "Rate your consistency this month. What could improve it?"],
+      ["How do you reduce friction before training?", "What does getting 1% better look like for you this week?"],
+      ["What is a training habit you do without thinking now?", "How has your relationship with effort changed over time?"],
+      ["What do you do when your plan does not go as expected?", "Describe a recent session where everything clicked."],
+      ["How do you stay accountable to your training goals?", "What is one thing your future self will thank you for doing today?"],
+      ["What does your post-training routine look like?", "How do you reward yourself for showing up consistently?"],
+      ["What obstacles have you overcome to keep training?", "What does consistency mean to you right now?"],
+      ["What is your system for managing training alongside homework and rest?", "How do you know when a system is working vs when to change it?"],
+      ["What process do you follow when you have a bad session?", "How has your sleep pattern affected your training?"],
+      ["What training principle have you internalised?", "How do you simplify your training decisions?"],
+      ["What is one system you have built that you are proud of?", "How do you prevent small disruptions from derailing your week?"],
+      ["What does your ideal rest day look like?", "How do you ensure you are training with intention, not just going through the motions?"],
+      ["What is one thing about your system that others could learn from?", "How do you adjust your training when life gets busy?"],
+      ["How do you review your training week? What do you look for?", "What is the most efficient part of your routine?"],
+      ["What systems do you have for staying injury-free?", "How do you handle the gap between where you are and where you want to be?"],
+      ["What role does stretching play in your system?", "What is one way you have simplified your approach to running?"],
+      ["How do you plan your training around school events?", "What has been your biggest breakthrough this term?"],
+      ["What process do you follow before a race or time trial?", "How do you manage nerves before a competitive event?"],
+      ["What training log insights have surprised you?", "How do you ensure quality in every session, not just quantity?"],
+      ["What is one system that failed? What did you learn?", "How do you adapt when the weather disrupts your plans?"],
+      ["How do you maintain your training gear and equipment?", "What is one efficiency hack you have discovered?"],
+      ["What role does goal-setting play in your weekly system?", "How do you separate controllable factors from uncontrollable ones?"],
+      ["What is your system for warming up? Has it evolved?", "How do you measure progress beyond just pace and distance?"],
+      ["How do you communicate with your coach about your training?", "What part of your system needs the most work right now?"],
+      ["What is one thing you automate that others still struggle with?", "How do you handle days when your body says rest but your mind says go?"],
+      ["What would you change about the team's training structure?", "How do you keep learning about running and fitness?"],
+      ["What cross-training activities support your running?", "How has your understanding of pacing improved?"],
+      ["What data do you pay most attention to in your training log?", "How do you balance individual goals with team goals?"],
+      ["What is your strategy for race week?", "How do you use setbacks as data rather than failures?"],
+      ["What role does visualisation play in your training?", "How do you build confidence through your systems?"],
+      ["What is one thing you do differently from most runners your age?", "How has your approach to hard sessions evolved?"],
+      ["What makes your training approach unique?", "How do you handle plateaus in your performance?"],
+      ["What process do you follow when setting new goals?", "How do you celebrate milestones in your training journey?"],
+      ["What is the most important metric you track?", "How do you ensure progressive overload without overtraining?"],
+      ["What role does teamwork play in your individual system?", "How do you evaluate whether a training block was successful?"],
+      ["What habits have become non-negotiable in your routine?", "How do you maintain quality sleep as part of your system?"],
+      ["What is one thing about your approach that you have refined over time?", "How do you stay patient with long-term goals?"],
+      ["How do you handle competing priorities on training days?", "What would your training system look like if you were coaching yourself?"],
+      ["What is the best investment you have made in your running?", "How do you maintain enthusiasm for training over a long season?"],
+      ["What does deliberate practice look like in your training?", "How do you ensure each session has a clear purpose?"],
+      ["What systems do you use for mental preparation?", "How do you bounce back after a disappointing race?"],
+      ["What is one training principle you will carry with you beyond school?", "How do you quantify your improvement over the past 3 months?"],
+    ]
+  },
+  {
+    name: "Runner's Identity",
+    icon: "\u{1F3C6}",
+    minSessions: 61,
+    maxSessions: 9999,
+    color: "#b388ff",
+    concept: "Identity Reinforcement & GRIT",
+    prompts: [
+      ["What kind of runner are you becoming?", "What does cross country mean to you beyond just running?"],
+      ["Describe a moment this term where you pushed through when it was hard.", "How has training shaped who you are outside of running?"],
+      ["What would you tell a junior who is just starting cross country?", "What does it mean to be part of this team?"],
+      ["What is a setback you have overcome? What did it teach you?", "How do you define mental toughness in your own words?"],
+      ["What legacy do you want to leave in the EVG XC team?", "What is one value you have developed through running?"],
+      ["How do you handle disappointment after a race or tough session?", "What does perseverance look like in your daily life?"],
+      ["Who inspires you in your running journey and why?", "How do you stay motivated when progress feels slow?"],
+      ["What is your proudest running achievement and why?", "What does passion for running mean to you?"],
+      ["How do you support your teammates during tough times?", "What is a long-term goal that excites you?"],
+      ["If you could go back to your first training, what advice would you give?", "How has your definition of success in running changed?"],
+      ["What does GRIT mean to you personally?", "Describe a time when your team lifted you up."],
+      ["What is a fear you have faced through running?", "How do you find purpose in the process, not just the results?"],
+      ["What has running taught you about patience?", "What is one thing you want to achieve before you graduate?"],
+      ["How do you lead by example in training?", "What does it mean to vote for the runner you want to become with each session?"],
+      ["Reflect on your journey so far. What are you most grateful for?", "What is the next chapter of your running story?"],
+      ["How has your identity as a runner influenced other areas of your life?", "What values from running do you apply in school or relationships?"],
+      ["What does resilience look like when you are exhausted and still have to push?", "How do you inspire others without even trying?"],
+      ["What sacrifice have you made for running that was worth it?", "How do you define excellence in your own terms?"],
+      ["What role does vulnerability play in becoming a better runner?", "How do you handle losing or not meeting expectations?"],
+      ["What would your teammates say about you as a training partner?", "What does growth mindset look like in your running?"],
+      ["How do you maintain your love for running during difficult phases?", "What does leadership in XC look like to you?"],
+      ["What conversation about running has stayed with you?", "How do you use past failures as fuel for future success?"],
+      ["What running memory would you keep forever?", "How has running changed your relationship with effort and discomfort?"],
+      ["What is the hardest thing about being a committed runner?", "How do you see running fitting into your life after secondary school?"],
+      ["How do you define yourself as an athlete?", "What does integrity in training mean to you?"],
+      ["What have you taught someone else about running?", "How do you handle the loneliness of individual effort in a team sport?"],
+      ["What does flow state feel like to you during a run?", "What sacrifices are you willing to make for your running goals?"],
+      ["How has your perspective on competition changed?", "What does healthy ambition look like?"],
+      ["What would you write in a letter to future EVG XC runners?", "What does leaving it all on the track mean to you?"],
+      ["How do you process a personal best? A personal worst?", "What role does gratitude play in your running journey?"],
+      ["What is the most important thing running has taught you about life?", "How do you balance confidence with humility?"],
+      ["What does it feel like when you know you gave everything in a session?", "How do you keep your competitive edge while being a supportive teammate?"],
+      ["What is one belief about yourself that running has changed?", "How do you deal with the pressure of expectations?"],
+      ["What does commitment look like when no one is watching?", "How do you stay true to your goals when others doubt you?"],
+      ["What has cross country taught you about teamwork?", "How do you handle the emotional side of competitive running?"],
+      ["What is one thing about yourself that you have discovered through running?", "How do you want to be remembered as a runner?"],
+      ["What does courage in running look like?", "How do you maintain hunger for improvement while being content with progress?"],
+      ["How has your understanding of hard work evolved?", "What wisdom about running would you pass on to your children someday?"],
+      ["What does authenticity in sport mean to you?", "How do you handle the transition from training season to off-season?"],
+      ["What is the deepest lesson running has taught you?", "How do you see the connection between physical training and mental strength?"],
+      ["What does it mean to honour the process?", "How have you grown as a person because of this team?"],
+      ["What is one moment where you surprised yourself with what you could do?", "How do you stay grounded after a great performance?"],
+      ["What does sportsmanship mean to you beyond just being polite?", "How do you channel nervous energy into positive performance?"],
+      ["What would you say in a speech about what XC has meant to you?", "How do you define the relationship between pain and growth?"],
+      ["What is one thing you would fight to protect about this team's culture?", "How do you handle the transition when you become a senior in the team?"],
+      ["What does mentoring a younger runner teach you about yourself?", "How do you keep perspective when running feels like everything?"],
+      ["What would your running autobiography be titled?", "How do you ensure running remains joy, not just obligation?"],
+      ["What is the greatest gift running has given you?", "How do you want to feel when you look back on your XC years?"],
+      ["What makes EVG XC special compared to other CCAs?", "What promise would you make to yourself for the rest of this season?"],
+      ["What does finishing strong in a race and in life mean to you?", "Write one sentence that captures your running journey so far."],
+    ]
+  }
+];
+
+function getReflectionPhase(sessionCount) {
+  for (const phase of REFLECTION_PHASES) {
+    if (sessionCount >= phase.minSessions && sessionCount <= phase.maxSessions) return phase;
+  }
+  return REFLECTION_PHASES[REFLECTION_PHASES.length - 1];
+}
+
+function getReflectionPrompts(sessionCount) {
+  const phase = getReflectionPhase(sessionCount);
+  const index = (sessionCount - phase.minSessions) % phase.prompts.length;
+  return { phase, prompts: phase.prompts[index] };
+}
+
+function renderReflection() {
+  const sessionCount = state.entries.filter(e => e.student === state.currentStudent).length;
+  const { phase, prompts } = getReflectionPrompts(sessionCount);
+
+  const el = document.getElementById("fb-reflection");
+  el.style.display = "";
+
+  document.getElementById("fb-phase-badge").innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px">
+      <span style="font-size:24px">${phase.icon}</span>
+      <div>
+        <div style="font-size:14px; font-weight:700; color:${phase.color}">Phase: ${phase.name}</div>
+        <div style="font-size:11px; color:var(--dim)">${phase.concept} — Session ${sessionCount}</div>
+      </div>
+    </div>
+    <div style="height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:4px">
+      <div style="height:100%; width:${Math.min((sessionCount / 61) * 100, 100)}%; background:linear-gradient(90deg, ${REFLECTION_PHASES[0].color}, ${REFLECTION_PHASES[1].color}, ${REFLECTION_PHASES[2].color}, ${REFLECTION_PHASES[3].color}); border-radius:2px; transition:width .5s"></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--dim)">
+      <span>🌱 1</span><span>⚡ 11</span><span>🔧 31</span><span>🏆 61+</span>
+    </div>`;
+
+  document.getElementById("fb-prompt1-area").innerHTML = `
+    <label class="field-label" style="color:${phase.color}">${prompts[0]}</label>
+    <textarea id="reflection-1" class="field-input" placeholder="Write your reflection here..." rows="3"></textarea>`;
+
+  document.getElementById("fb-prompt2-area").innerHTML = `
+    <label class="field-label" style="color:${phase.color}">${prompts[1]}</label>
+    <textarea id="reflection-2" class="field-input" placeholder="Write your reflection here..." rows="3"></textarea>`;
+
+  document.getElementById("fb-save-reflection").style.display = "";
+  document.getElementById("fb-reflection-saved").style.display = "none";
+}
+
+async function saveReflection() {
+  const r1 = document.getElementById("reflection-1").value.trim();
+  const r2 = document.getElementById("reflection-2").value.trim();
+  if (!r1 && !r2) { alert("Please write at least one reflection before saving."); return; }
+
+  const sessionCount = state.entries.filter(e => e.student === state.currentStudent).length;
+  const phase = getReflectionPhase(sessionCount);
+
+  const res = await api({ action: "saveReflection", entryId: state.lastEntryId, reflection1: r1, reflection2: r2, phase: phase.name });
+
+  if (res.success) {
+    document.getElementById("fb-save-reflection").style.display = "none";
+    document.getElementById("fb-reflection-saved").style.display = "";
+    document.getElementById("reflection-1").disabled = true;
+    document.getElementById("reflection-2").disabled = true;
+  } else {
+    alert("Failed to save reflection. Please try again.");
+  }
 }
 
 // ═══════════════════════════════════════
@@ -782,6 +1138,7 @@ function renderHistory() {
           ${e.shoe&&getShoeName(e.shoe)?`<span>👟 <strong>${getShoeName(e.shoe)}</strong></span>`:""}
         </div>
         ${e.description?`<div style="margin-top:6px; font-size:12px; color:var(--dim); font-style:italic">${e.description}</div>`:""}
+        ${e.reflection1||e.reflection2?`<div style="margin-top:6px; padding-top:6px; border-top:1px solid var(--border)"><div style="font-size:10px; color:var(--gold); font-weight:600; margin-bottom:3px">💭 REFLECTION${e.reflectionPhase?" — "+e.reflectionPhase:""}</div>${e.reflection1?`<div style="font-size:11px; color:var(--dim); line-height:1.4; margin-bottom:2px">${e.reflection1}</div>`:""}${e.reflection2?`<div style="font-size:11px; color:var(--dim); line-height:1.4">${e.reflection2}</div>`:""}</div>`:""}
       </div>`).join("");
   };
   render();
@@ -828,37 +1185,63 @@ function renderShoes() {
   const shoes = state.shoes.filter(s => s.student === state.currentStudent);
   document.getElementById("shoe-name").value = "";
   document.getElementById("shoe-brand").value = "";
+  document.getElementById("shoe-first-use").value = todayStr();
+  document.getElementById("shoe-max-km").value = "800";
+  document.getElementById("shoe-notes").value = "";
+  state.shoeRunType = "";
+
+  // Render run type chips for shoe form
+  document.getElementById("shoe-runtype-chips").innerHTML = `<button class="chip ${!state.shoeRunType?"active":""}" onclick="selectShoeRunType('')">None</button>` + RUN_TYPES.map(t => `<button class="chip ${state.shoeRunType===t?"active":""}" onclick="selectShoeRunType('${t}')">${t}</button>`).join("");
 
   document.getElementById("shoes-list").innerHTML = shoes.length === 0 ? `<div style="text-align:center; padding:30px; color:var(--dim)">No shoes added yet!</div>` :
     shoes.map(s => {
       const km = state.entries.filter(e => e.shoe === s.id).reduce((a,e) => a + e.distance, 0);
       const runs = state.entries.filter(e => e.shoe === s.id).length;
-      const health = km > 700 ? "danger" : km > 500 ? "warn" : km > 400 ? "caution" : "good";
+      const maxKm = s.maxKm || 800;
+      const pct = (km / maxKm) * 100;
+      const health = pct > 100 ? "danger" : pct > 80 ? "warn" : pct > 60 ? "caution" : "good";
       const hCol = {good:"var(--accent)",caution:"var(--gold)",warn:"var(--warn)",danger:"var(--danger)"}[health];
       const hText = {good:"Good condition",caution:"Getting worn",warn:"Replace soon",danger:"Past lifespan!"}[health];
       return `<div class="card-sm" style="margin-bottom:10px">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px">
-          <div><div style="font-size:15px; font-weight:700">👟 ${s.name}</div>${s.brand?`<div style="font-size:12px; color:var(--dim)">${s.brand}</div>`:""}</div>
+          <div>
+            <div style="font-size:15px; font-weight:700">👟 ${s.name}</div>
+            ${s.brand?`<div style="font-size:12px; color:var(--dim)">${s.brand}</div>`:""}
+          </div>
           <button style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px" onclick="confirmDeleteShoe('${s.id}')">✕</button>
         </div>
+        <div style="display:flex; gap:12px; font-size:11px; color:var(--dim); margin-bottom:8px; flex-wrap:wrap">
+          ${s.firstUseDate?`<span>Since: ${fmtDate(s.firstUseDate)}</span>`:""}
+          ${s.defaultRunType?`<span>Default: <strong style="color:var(--text)">${s.defaultRunType}</strong></span>`:""}
+          <span>Max: <strong style="color:var(--text)">${maxKm} km</strong></span>
+        </div>
+        ${s.notes?`<div style="font-size:11px; color:var(--dim); font-style:italic; margin-bottom:8px">${s.notes}</div>`:""}
         <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px">
           <span style="color:var(--dim)">${runs} run${runs!==1?"s":""}</span>
-          <span style="font-weight:700; color:${hCol}">${km.toFixed(1)} km</span>
+          <span style="font-weight:700; color:${hCol}">${km.toFixed(1)} / ${maxKm} km</span>
         </div>
-        <div class="progress-bg" style="height:6px"><div class="progress-fill" style="width:${Math.min((km/800)*100,100)}%; background:${hCol}"></div></div>
+        <div class="progress-bg" style="height:6px"><div class="progress-fill" style="width:${Math.min(pct,100)}%; background:${hCol}"></div></div>
         <div style="display:flex; justify-content:space-between; font-size:10px; margin-top:3px">
           <span style="color:${hCol}">${hText}</span>
-          <span style="color:var(--dim)">~500–800 km lifespan</span>
+          <span style="color:var(--dim)">${Math.max(0, maxKm - km).toFixed(0)} km remaining</span>
         </div>
       </div>`;
     }).join("");
+}
+
+function selectShoeRunType(t) {
+  state.shoeRunType = t;
+  document.getElementById("shoe-runtype-chips").innerHTML = `<button class="chip ${!state.shoeRunType?"active":""}" onclick="selectShoeRunType('')">None</button>` + RUN_TYPES.map(x => `<button class="chip ${state.shoeRunType===x?"active":""}" onclick="selectShoeRunType('${x}')">${x}</button>`).join("");
 }
 
 async function addShoe() {
   const name = document.getElementById("shoe-name").value.trim();
   if (!name) return;
   const brand = document.getElementById("shoe-brand").value.trim();
-  await api({ action: "addShoe", shoe: { student: state.currentStudent, name, brand: brand || null } });
+  const firstUseDate = document.getElementById("shoe-first-use").value || todayStr();
+  const maxKm = parseInt(document.getElementById("shoe-max-km").value) || 800;
+  const notes = document.getElementById("shoe-notes").value.trim();
+  await api({ action: "addShoe", shoe: { student: state.currentStudent, name, brand: brand || null, firstUseDate, maxKm, defaultRunType: state.shoeRunType || null, notes: notes || null } });
   await loadAllData();
   renderShoes();
 }
