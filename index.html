@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>EVG Cross Country Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -450,7 +450,6 @@ function goScreen(name) {
   document.getElementById("screen-" + name).classList.add("active");
   window.scrollTo(0, 0);
 
-  // Render screen content
   if (name === "dashboard") renderDashboard();
   else if (name === "log") renderLogForm();
   else if (name === "history") renderHistory();
@@ -473,10 +472,7 @@ async function goHome() {
 function renderStudentList() {
   const el = document.getElementById("home-students-list");
   if (!state.students.length) { el.innerHTML = ""; return; }
-  // Show hint but no names until user types
   el.innerHTML = `<div style="margin-bottom:24px"><div style="font-size:12px; color:var(--dim); text-align:center">Returning? Just type your name above and tap Continue</div><div id="filtered-students" class="chip-row" style="margin-top:10px"></div></div>`;
-  
-  // Add search-as-you-type to the name field
   const nameInput = document.getElementById("home-name");
   nameInput.addEventListener("input", filterStudentNames);
 }
@@ -486,10 +482,8 @@ function filterStudentNames() {
   const el = document.getElementById("filtered-students");
   if (!el) return;
   if (!query || query.length < 1) { el.innerHTML = ""; return; }
-  
   const matches = state.students.filter(s => s.name.toLowerCase().includes(query)).slice(0, 8);
   if (matches.length === 0) { el.innerHTML = ""; return; }
-  
   el.innerHTML = matches.map(s => `<button class="chip" onclick="handleTapStudent('${s.name.replace(/'/g,"\\'")}')" style="animation:slideIn .2s ease both">🔒 ${s.name}</button>`).join("");
 }
 
@@ -509,7 +503,6 @@ function handleNameSubmit() {
 
   const existing = state.students.find(s => s.name.toLowerCase() === name.toLowerCase());
   if (existing) {
-    // Returning student
     state.currentStudent = existing.name;
     document.getElementById("login-name").textContent = existing.name;
     document.getElementById("home-idle").style.display = "none";
@@ -518,7 +511,6 @@ function handleNameSubmit() {
     return;
   }
 
-  // Check near-duplicates
   const norm = name.replace(/\s+/g," ").toLowerCase();
   const similar = state.students.find(s => s.name.replace(/\s+/g," ").toLowerCase() === norm);
   if (similar) {
@@ -526,7 +518,6 @@ function handleNameSubmit() {
     return;
   }
 
-  // New student
   state.currentStudent = name;
   document.getElementById("reg-name").textContent = name;
   document.getElementById("home-idle").style.display = "none";
@@ -631,17 +622,16 @@ function renderLogForm() {
   document.getElementById("log-description").value = "";
   document.getElementById("log-errors").innerHTML = "";
   document.getElementById("log-preview").style.display = "none";
+  // Re-enable save button in case it was left disabled
+  document.getElementById("log-save-btn").disabled = false;
   state.selectedRunType = "Easy Run";
   state.selectedRpe = 0;
   state.selectedShoe = "";
 
-  // Run type chips
   document.getElementById("log-runtype-chips").innerHTML = RUN_TYPES.map(t => `<button class="chip ${state.selectedRunType===t?"active":""}" onclick="selectRunType('${t}')">${t}</button>`).join("");
 
-  // RPE
   renderRpe();
 
-  // Shoes
   const shoes = state.shoes.filter(s => s.student === state.currentStudent);
   const section = document.getElementById("log-shoes-section");
   if (shoes.length) {
@@ -651,7 +641,6 @@ function renderLogForm() {
     section.style.display = "none";
   }
 
-  // Live preview
   ["log-distance","log-hours","log-minutes","log-seconds"].forEach(id => {
     document.getElementById(id).oninput = updatePreview;
   });
@@ -660,7 +649,6 @@ function renderLogForm() {
 function selectRunType(t) {
   state.selectedRunType = t;
   document.getElementById("log-runtype-chips").innerHTML = RUN_TYPES.map(x => `<button class="chip ${state.selectedRunType===x?"active":""}" onclick="selectRunType('${x}')">${x}</button>`).join("");
-  // Auto-select default shoe for this run type
   const shoes = state.shoes.filter(s => s.student === state.currentStudent);
   const defaultShoe = shoes.find(s => s.defaultRunType === t);
   if (defaultShoe) { state.selectedShoe = defaultShoe.id; renderLogShoes(); }
@@ -694,59 +682,60 @@ function updatePreview() {
   } else { el.style.display = "none"; }
 }
 
-const btn = document.getElementById("log-save-btn");
-if (btn) btn.disabled = true;
-try {
-  const dist = parseFloat(document.getElementById("log-distance").value);
-  const h = document.getElementById("log-hours").value;
-  const m = document.getElementById("log-minutes").value;
-  const s = document.getElementById("log-seconds").value;
-  const totalSec = hmsToSec(h, m, s);
+// ── FIX 1: use getElementById for reliable button reference
+// ── FIX 2: entry.id is set from res.id before renderFeedback is called
+async function saveEntry() {
+  const btn = document.getElementById("log-save-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const dist = parseFloat(document.getElementById("log-distance").value);
+    const h = document.getElementById("log-hours").value;
+    const m = document.getElementById("log-minutes").value;
+    const s = document.getElementById("log-seconds").value;
+    const totalSec = hmsToSec(h, m, s);
 
-  // Validate
-  const errors = [];
-  if (isNaN(dist) || dist <= 0) errors.push("Distance must be greater than 0.");
-  else if (dist > 50) errors.push("Distance too high (max 50 km).");
-  else if (dist < 0.1) errors.push("Distance must be at least 0.1 km.");
-  if (totalSec <= 0) errors.push("Please enter a valid time.");
-  else if (totalSec > 21600) errors.push("Time exceeds 6 hours.");
-  else if (totalSec < 30) errors.push("Time seems too short.");
-  if (dist > 0 && totalSec > 0) { const p = totalSec/dist; if (p < 90) errors.push("Pace unrealistically fast."); if (p > 1200) errors.push("Pace very slow."); }
+    const errors = [];
+    if (isNaN(dist) || dist <= 0) errors.push("Distance must be greater than 0.");
+    else if (dist > 50) errors.push("Distance too high (max 50 km).");
+    else if (dist < 0.1) errors.push("Distance must be at least 0.1 km.");
+    if (totalSec <= 0) errors.push("Please enter a valid time.");
+    else if (totalSec > 21600) errors.push("Time exceeds 6 hours.");
+    else if (totalSec < 30) errors.push("Time seems too short.");
+    if (dist > 0 && totalSec > 0) { const p = totalSec/dist; if (p < 90) errors.push("Pace unrealistically fast."); if (p > 1200) errors.push("Pace very slow."); }
 
-  const errEl = document.getElementById("log-errors");
-  if (errors.length) { errEl.innerHTML = errors.map(e => `<div class="error">${e}</div>`).join(""); return; }
-  errEl.innerHTML = "";
+    const errEl = document.getElementById("log-errors");
+    if (errors.length) { errEl.innerHTML = errors.map(e => `<div class="error">${e}</div>`).join(""); return; }
+    errEl.innerHTML = "";
 
-  const date = document.getElementById("log-date").value;
-  const entry = {
-    student: state.currentStudent,
-    date: new Date(date + "T12:00:00").toISOString(),
-    distance: dist, totalSeconds: totalSec,
-    runType: state.selectedRunType,
-    description: document.getElementById("log-description").value.trim() || "",
-    rpe: state.selectedRpe || 0,
-    shoe: state.selectedShoe || ""
-  };
+    const date = document.getElementById("log-date").value;
+    const entry = {
+      student: state.currentStudent,
+      date: new Date(date + "T12:00:00").toISOString(),
+      distance: dist, totalSeconds: totalSec,
+      runType: state.selectedRunType,
+      description: document.getElementById("log-description").value.trim() || "",
+      rpe: state.selectedRpe || 0,
+      shoe: state.selectedShoe || ""
+    };
 
-  const res = await api({ action: "addEntry", entry });
-console.log("Save result:", JSON.stringify(res));
-if (!res.success) { errEl.innerHTML = `<div class="error">${res.error || "Failed to save. Please try again."}</div>`; return; }
-entry.id = res.id;
-console.log("Entry ID set to:", entry.id);
+    const res = await api({ action: "addEntry", entry });
+    if (!res.success) { document.getElementById("log-errors").innerHTML = `<div class="error">${res.error || "Failed to save. Please try again."}</div>`; return; }
 
-  // Generate feedback before reloading
-  const prev = state.entries.filter(e => e.student === state.currentStudent && e.runType === entry.runType);
-  const previous = prev.length ? prev[prev.length - 1] : null;
-  const weekKey = getWeekKey(entry.date);
-  const weekKm = state.entries.filter(e => e.student === state.currentStudent && getWeekKey(e.date) === weekKey).reduce((a,e) => a + e.distance, 0) + dist;
-  let shoeInfo = null;
-  if (entry.shoe) { const sh = state.shoes.find(x=>x.id===entry.shoe); const sn = sh?sh.name:null; const skm = state.entries.filter(e => e.shoe === entry.shoe).reduce((a,e) => a + e.distance, 0) + dist; shoeInfo = { name: sn, totalKm: skm, maxKm: sh?.maxKm || 800 }; }
+    // ── FIX: capture the server-generated ID immediately
+    entry.id = res.id;
+    state.lastEntryId = res.id;
 
-  const feedback = generateFeedback(entry, previous, weekKm, shoeInfo);
+    const prev = state.entries.filter(e => e.student === state.currentStudent && e.runType === entry.runType);
+    const previous = prev.length ? prev[prev.length - 1] : null;
+    const weekKey = getWeekKey(entry.date);
+    const weekKm = state.entries.filter(e => e.student === state.currentStudent && getWeekKey(e.date) === weekKey).reduce((a,e) => a + e.distance, 0) + dist;
+    let shoeInfo = null;
+    if (entry.shoe) { const sh = state.shoes.find(x=>x.id===entry.shoe); const sn = sh?sh.name:null; const skm = state.entries.filter(e => e.shoe === entry.shoe).reduce((a,e) => a + e.distance, 0) + dist; shoeInfo = { name: sn, totalKm: skm, maxKm: sh?.maxKm || 800 }; }
 
-  await loadAllData();
-  renderFeedback(entry, previous, feedback);
-  goScreen("feedback");
+    const feedback = generateFeedback(entry, previous, weekKm, shoeInfo);
+    await loadAllData();
+    renderFeedback(entry, previous, feedback);
+    goScreen("feedback");
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -795,10 +784,8 @@ function renderFeedback(entry, prev, lines) {
     return `<div class="fb-card ${cls}" style="animation:slideIn .4s ease ${i*.12}s both"><div class="fb-icon">${FB_ICONS[l.type]||"✨"}</div><div class="fb-text">${l.text}</div></div>`;
   }).join("");
 
-  // Show reflection section
-  state.lastEntryId = entry.id;
-console.log("lastEntryId:", state.lastEntryId);  // ← use the ID returned from Apps Script
-renderReflection();
+  // state.lastEntryId is already set in saveEntry() before this is called
+  renderReflection();
 }
 
 // ═══════════════════════════════════════
@@ -862,7 +849,7 @@ const REFLECTION_PHASES = [
       ["What does your recovery routine look like?", "How do you know when you need rest vs when you need to push?"],
       ["What is one moment from today that you want to hold onto?", "How does training make you a better student or person?"],
       ["What would you say to encourage a teammate who is struggling?", "What is one thing you are looking forward to this week in training?"],
-      ["How has your mental toughness changed since you started XC?", "What does trust the process mean to you right now?"],
+      ["How has your mental toughness changed since you started XC?", "What does trust the process mean to you right now?"]
     ]
   },
   {
@@ -922,7 +909,7 @@ const REFLECTION_PHASES = [
       ["What is one thing you have learned about nutrition that helps your running?", "How do you prepare mentally for a session you know will be tough?"],
       ["What is the most important lesson training has taught you this term?", "How do you maintain momentum during school holidays?"],
       ["What would you include in a training toolkit for new runners?", "How do you deal with muscle soreness and fatigue?"],
-      ["What makes your training environment ideal?", "How do you stay engaged during repetitive drills?"],
+      ["What makes your training environment ideal?", "How do you stay engaged during repetitive drills?"]
     ]
   },
   {
@@ -982,7 +969,7 @@ const REFLECTION_PHASES = [
       ["What is the best investment you have made in your running?", "How do you maintain enthusiasm for training over a long season?"],
       ["What does deliberate practice look like in your training?", "How do you ensure each session has a clear purpose?"],
       ["What systems do you use for mental preparation?", "How do you bounce back after a disappointing race?"],
-      ["What is one training principle you will carry with you beyond school?", "How do you quantify your improvement over the past 3 months?"],
+      ["What is one training principle you will carry with you beyond school?", "How do you quantify your improvement over the past 3 months?"]
     ]
   },
   {
@@ -1042,7 +1029,7 @@ const REFLECTION_PHASES = [
       ["What would your running autobiography be titled?", "How do you ensure running remains joy, not just obligation?"],
       ["What is the greatest gift running has given you?", "How do you want to feel when you look back on your XC years?"],
       ["What makes EVG XC special compared to other CCAs?", "What promise would you make to yourself for the rest of this season?"],
-      ["What does finishing strong in a race and in life mean to you?", "Write one sentence that captures your running journey so far."],
+      ["What does finishing strong in a race and in life mean to you?", "Write one sentence that captures your running journey so far."]
     ]
   }
 ];
@@ -1196,7 +1183,6 @@ function renderShoes() {
   document.getElementById("shoe-notes").value = "";
   state.shoeRunType = "";
 
-  // Render run type chips for shoe form
   document.getElementById("shoe-runtype-chips").innerHTML = `<button class="chip ${!state.shoeRunType?"active":""}" onclick="selectShoeRunType('')">None</button>` + RUN_TYPES.map(t => `<button class="chip ${state.shoeRunType===t?"active":""}" onclick="selectShoeRunType('${t}')">${t}</button>`).join("");
 
   document.getElementById("shoes-list").innerHTML = shoes.length === 0 ? `<div style="text-align:center; padding:30px; color:var(--dim)">No shoes added yet!</div>` :
@@ -1272,7 +1258,6 @@ function renderTeacherDash() {
     <div class="stat-box"><div class="stat-label">Entries</div><div class="stat-value" style="color:var(--secondary)">${entries.length}</div></div>
     <div class="stat-box"><div class="stat-label">Total km</div><div class="stat-value" style="color:var(--gold)">${entries.reduce((a,e)=>a+e.distance,0).toFixed(0)}</div></div>`;
 
-  // Change PIN section
   document.getElementById("teacher-change-pin-area").innerHTML = `
     <button class="btn btn-secondary mono" style="font-size:12px; letter-spacing:0.5px; margin-bottom:16px" onclick="toggleChangePinForm()">🔑 CHANGE TEACHER PIN</button>
     <div id="change-pin-form" class="card" style="display:none">
@@ -1283,7 +1268,6 @@ function renderTeacherDash() {
       <div class="btn-row"><button class="btn btn-secondary" onclick="toggleChangePinForm()">Cancel</button><button class="btn btn-primary" onclick="doChangeTeacherPin()">Update</button></div>
     </div>`;
 
-  // Students list
   const stats = students.map(s => {
     const se = entries.filter(e => e.student === s.name);
     return { name: s.name, runs: se.length, km: se.reduce((a,e)=>a+e.distance,0), last: se.length ? se[se.length-1] : null };
