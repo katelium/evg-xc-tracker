@@ -1098,7 +1098,13 @@ async function saveReflection() {
   const sessionCount = state.entries.filter(e => e.student === state.currentStudent).length;
   const phase = getReflectionPhase(sessionCount);
 
+  // DEBUG
+  alert("DEBUG: entryId=" + state.lastEntryId + " | student=" + state.currentStudent + " | phase=" + phase.name);
+
   const res = await api({ action: "saveReflection", entryId: state.lastEntryId, reflection1: r1, reflection2: r2, phase: phase.name });
+
+  // DEBUG
+  alert("DEBUG response: " + JSON.stringify(res));
 
   if (res.success) {
     document.getElementById("fb-save-reflection").style.display = "none";
@@ -1106,7 +1112,7 @@ async function saveReflection() {
     document.getElementById("reflection-1").disabled = true;
     document.getElementById("reflection-2").disabled = true;
   } else {
-    alert("Failed to save reflection. Please try again.");
+    alert("Failed to save reflection: " + (res.error || "unknown error"));
   }
 }
 
