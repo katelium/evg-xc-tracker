@@ -727,10 +727,10 @@ async function saveEntry() {
   };
 
   const res = await api({ action: "addEntry", entry });
-  console.log("Save result:", JSON.stringify(res));
-  if (!res.success) { errEl.innerHTML = `<div class="error">${res.error || "Failed to save. Please try again."}</div>`; return; }
-
-  entry.id = res.id;
+console.log("Save result:", JSON.stringify(res));
+if (!res.success) { errEl.innerHTML = `<div class="error">${res.error || "Failed to save. Please try again."}</div>`; return; }
+entry.id = res.id;
+console.log("Entry ID set to:", entry.id);
 
   // Generate feedback before reloading
   const prev = state.entries.filter(e => e.student === state.currentStudent && e.runType === entry.runType);
@@ -791,7 +791,8 @@ function renderFeedback(entry, prev, lines) {
   }).join("");
 
   // Show reflection section
-  state.lastEntryId = res.id;  // ← use the ID returned from Apps Script
+  state.lastEntryId = entry.id;
+console.log("lastEntryId:", state.lastEntryId);  // ← use the ID returned from Apps Script
 renderReflection();
 }
 
