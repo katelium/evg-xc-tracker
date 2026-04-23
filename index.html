@@ -131,7 +131,7 @@ input[type=number] { -moz-appearance: textfield; }
       <div class="card">
         <div class="field">
           <label class="field-label">Your Name</label>
-          <input type="text" id="home-name" class="field-input" placeholder="e.g. Enter your name" autocomplete="off">
+          <input type="text" id="home-name" class="field-input" placeholder="e.g. Enter your name" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();handleNameSubmit();}">
         </div>
         <button class="btn btn-primary" onclick="handleNameSubmit()">Continue →</button>
       </div>
@@ -157,7 +157,7 @@ input[type=number] { -moz-appearance: textfield; }
       <div class="card">
         <div style="font-size:13px; color:var(--dim); margin-bottom:4px">Welcome back,</div>
         <div id="login-name" style="font-size:22px; font-weight:800; color:var(--accent); margin-bottom:16px"></div>
-        <div class="field"><label class="field-label">Enter your PIN</label><input type="password" id="login-pin" class="field-input" placeholder="Your PIN" maxlength="6" inputmode="numeric"></div>
+        <div class="field"><label class="field-label">Enter your PIN</label><input type="password" id="login-pin" class="field-input" placeholder="Your PIN" maxlength="6" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
         <div id="login-error"></div>
         <button class="btn btn-primary" onclick="doLogin()">Login →</button>
         <button class="btn-text" onclick="homeReset()">← Back</button>
@@ -412,11 +412,20 @@ function showLoading() { document.getElementById("loadingOverlay").style.display
 function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
 
 async function api(params) {
-  const url = new URL(API_URL);
-  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : v));
+  const usePost = params.action === "saveReflection";
   try {
     showLoading();
-    const res = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
+    let fetchRes;
+    if (usePost) {
+      const body = new URLSearchParams();
+      Object.entries(params).forEach(([k,v]) => body.append(k, typeof v === "object" ? JSON.stringify(v) : String(v)));
+      fetchRes = await fetch(API_URL, { method: "POST", body, redirect: "follow", mode: "cors" });
+    } else {
+      const url = new URL(API_URL);
+      Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : v));
+      fetchRes = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
+    }
+    const res = fetchRes;
     const text = await res.text();
     try {
       return JSON.parse(text);
