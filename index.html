@@ -412,9 +412,12 @@ function showLoading() { document.getElementById("loadingOverlay").style.display
 function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
 
 async function api(params) {
-  // Always use GET with URLSearchParams — Apps Script e.parameter only reads query strings
   const url = new URL(API_URL);
   Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : String(v)));
+  if (params.action === "saveReflection") {
+    console.log("REFLECTION URL:", url.toString());
+    alert("URL being sent:\n" + url.toString().substring(0, 300));
+  }
   try {
     showLoading();
     const res = await fetch(url.toString(), { redirect: "follow", mode: "cors" });
@@ -1090,13 +1093,14 @@ async function saveReflection() {
   const sessionCount = state.entries.filter(e => e.student === state.currentStudent).length;
   const phase = getReflectionPhase(sessionCount);
 
-  // DEBUG
-  alert("DEBUG: entryId=" + state.lastEntryId + " | student=" + state.currentStudent + " | phase=" + phase.name);
-
-  const res = await api({ action: "saveReflection", entryId: state.lastEntryId, reflection1: r1, reflection2: r2, phase: phase.name });
-
-  // DEBUG
-  alert("DEBUG response: " + JSON.stringify(res));
+  // Truncate reflections to 800 chars each to stay within URL limits
+  const res = await api({
+    action: "saveReflection",
+    entryId: state.lastEntryId,
+    reflection1: r1.substring(0, 800),
+    reflection2: r2.substring(0, 800),
+    phase: phase.name
+  });
 
   if (res.success) {
     document.getElementById("fb-save-reflection").style.display = "none";
