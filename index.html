@@ -791,8 +791,8 @@ function renderFeedback(entry, prev, lines) {
   }).join("");
 
   // Show reflection section
-  state.lastEntryId = entry.id;
-  renderReflection();
+  state.lastEntryId = res.id;  // ← use the ID returned from Apps Script
+renderReflection();
 }
 
 // ═══════════════════════════════════════
