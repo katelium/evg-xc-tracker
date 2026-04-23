@@ -695,6 +695,9 @@ function updatePreview() {
 }
 
 async function saveEntry() {
+  const btn = document.querySelector("[onclick='saveEntry()']");
+  if (btn) btn.disabled = true;
+  try {
   const dist = parseFloat(document.getElementById("log-distance").value);
   const h = document.getElementById("log-hours").value;
   const m = document.getElementById("log-minutes").value;
@@ -745,6 +748,9 @@ console.log("Entry ID set to:", entry.id);
   await loadAllData();
   renderFeedback(entry, previous, feedback);
   goScreen("feedback");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function generateFeedback(cur, prev, weekKm, shoeInfo) {
